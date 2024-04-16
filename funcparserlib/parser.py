@@ -79,8 +79,14 @@ from typing import (
     cast,
     overload,
 )
+import sys
 
 from funcparserlib.lexer import Token
+
+if sys.version_info >= (3, 11):
+    from typing import TypeVarTuple, Unpack
+else:
+    from typing_extensions import TypeVarTuple, Unpack
 
 log = logging.getLogger("funcparserlib")
 
@@ -551,18 +557,38 @@ class _Tuple(tuple):
     pass
 
 
-class _TupleParser(Parser[_A, _B], Generic[_A, _B]):
+_TTuple = TypeVar("_TTuple", bound=tuple)
+_TTuple2 = TypeVar("_TTuple2", bound=tuple)
+_Ts = TypeVarTuple("_Ts")
+
+
+class _TupleParser(Parser[_A, _TTuple], Generic[_A, _TTuple]):
     @overload  # type: ignore[override]
-    def __add__(self, other: "_IgnoredParser[_A]") -> "_TupleParser[_A, _B]":
+    def __add__(self, other: "_IgnoredParser[_A]") -> "_TupleParser[_A, _TTuple]":
         pass
 
     @overload
-    def __add__(self, other: Parser[_A, Any]) -> Parser[_A, Any]:
+    def __add__(self, other: "_TupleParser[_A, _TTuple2]") -> "_TupleParser[_A, tuple]":
+        pass
+
+    @overload
+    def __add__(
+        self: "_TupleParser[_A, tuple[Unpack[_Ts]]]", other: Parser[_A, _C]
+    ) -> "_TupleParser[_A, tuple[Unpack[_Ts], _C]]":
         pass
 
     def __add__(
-        self, other: Union["_IgnoredParser[_A]", Parser[_A, Any]]
-    ) -> Union["_TupleParser[_A, _B]", Parser[_A, Any]]:
+        self,
+        other: Union[
+            "_IgnoredParser[_A]",
+            Parser[_A, _C],
+            "_TupleParser[_A, _TTuple2]",
+        ],
+    ) -> Union[
+        "_TupleParser[_A, _B]",
+        "_TupleParser[_A, tuple[Unpack[_Ts], _C]]",
+        "_TupleParser[_A, tuple]",
+    ]:
         return super().__add__(other)
 
 
