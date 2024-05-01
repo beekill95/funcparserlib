@@ -79,14 +79,20 @@ from typing import (
     Union,
     cast,
     overload,
+    TYPE_CHECKING,
 )
 
 from funcparserlib.lexer import Token
 
+# if TYPE_CHECKING:
 if sys.version_info >= (3, 11):
-    from typing import TypeVarTuple, Unpack
+    from typing import TypeVarTuple, Unpack, Self
 else:
-    from typing_extensions import TypeVarTuple, Unpack
+    from typing_extensions import TypeVarTuple, Unpack, Self
+
+_Ts = TypeVarTuple("_Ts")
+_Ks = TypeVarTuple("_Ks")
+
 
 log = logging.getLogger("funcparserlib")
 
@@ -133,7 +139,8 @@ class Parser(Generic[_A, _B]):
         self.name = ""
         self.define(p)
 
-    def named(self, name: str) -> "Parser[_A, _B]":
+    # def named(self, name: str) -> "Parser[_A, _B]":
+    def named(self, name: str) -> Self:
         # noinspection GrazieInspection
         """Specify the name of the parser for easier debugging.
 
@@ -273,9 +280,8 @@ class Parser(Generic[_A, _B]):
             raise
 
     @overload
-    def __add__(  # type: ignore[misc]
-        self, other: "_IgnoredParser[_A]"
-    ) -> "Parser[_A, _B]":
+    def __add__(self, other: "_IgnoredParser[_A]") -> Self:  # type: ignore[misc]
+        # ) -> "Parser[_A, _B]":
         pass
 
     @overload
@@ -285,7 +291,7 @@ class Parser(Generic[_A, _B]):
     def __add__(
         self,
         other: Union["_IgnoredParser[_A]", "Parser[_A, _C]"],
-    ) -> Union["Parser[_A, _B]", "_TupleParser[_A, _B, _C]"]:
+    ) -> Union[Self, "_TupleParser[_A, _B, _C]"]:
         """Sequential combination of parsers. It runs this parser, then the other
         parser.
 
@@ -304,9 +310,9 @@ class Parser(Generic[_A, _B]):
         dynamic return type of this method):
 
         * `(self: Parser[A, B], _IgnoredParser[A]) -> Parser[A, B]`
-        * `(self: Parser[A, B], Parser[A, C]) -> _TupleParser[A, Tuple[B, C]]`
-        * `(self: _TupleParser[A, B], _IgnoredParser[A]) -> _TupleParser[A, B]`
-        * `(self: _TupleParser[A, B], Parser[A, Any]) -> Parser[A, Any]`
+        * `(self: Parser[A, B], Parser[A, C]) -> _TupleParser[A, B, C]`
+        * `(self: _TupleParser[A, *Ts], _IgnoredParser[A]) -> _TupleParser[A, *Ts]`
+        * `(self: _TupleParser[A, *Ts], Parser[A, C]) -> _TupleParser[A, *Ts, C]`
         * `(self: _IgnoredParser[A], _IgnoredParser[A]) -> _IgnoredParser[A]`
         * `(self: _IgnoredParser[A], Parser[A, C]) -> Parser[A, C]`
 
@@ -336,17 +342,18 @@ class Parser(Generic[_A, _B]):
         ```
         """
 
-        def magic(v1: Any, v2: Any) -> _Tuple:
-            if isinstance(v1, _Tuple):
-                return _Tuple(v1 + (v2,))
-            else:
-                return _Tuple((v1, v2))
+        # def magic(v1: Any, v2: Any) -> _Tuple:
+        #     if isinstance(v1, _Tuple):
+        #         return _Tuple(v1 + (v2,))
+        #     else:
+        #         return _Tuple((v1, v2))
 
         @_TupleParser
         def _add(tokens: Sequence[_A], s: State) -> Tuple[Tuple[_B, _C], State]:
             (v1, s2) = self.run(tokens, s)
             (v2, s3) = other.run(tokens, s2)
-            return cast(Tuple[_B, _C], magic(v1, v2)), s3
+            return _Tuple((v1, v2)), s3
+            # return cast(Tuple[_B, _C], magic(v1, v2)), s3
 
         @Parser
         def ignored_right(tokens: Sequence[_A], s: State) -> Tuple[_B, State]:
@@ -553,42 +560,37 @@ class NoParseError(Exception):
         return self.msg
 
 
-_Ts = TypeVarTuple("_Ts")
-_Ks = TypeVarTuple("_Ks")
-
-
 class _Tuple(tuple):
     pass
 
 
 class _TupleParser(Parser[_A, Tuple[Unpack[_Ts]]], Generic[_A, Unpack[_Ts]]):
     @overload  # type: ignore[override]
-    def __add__(self, other: "_IgnoredParser[_A]") -> "_TupleParser[_A, Unpack[_Ts]]":
+    def __add__(self, other: "_IgnoredParser[_A]") -> Self:
         pass
 
     @overload
-    def __add__(
-        self, other: "_TupleParser[_A, Unpack[_Ks]]"
-    ) -> "_TupleParser[_A, Unpack[Tuple]]":
-        pass
-
-    @overload
-    def __add__(self, other: "Parser[_A, _B]") -> "_TupleParser[_A, Unpack[_Ts], _B]":
+    def __add__(self, other: Parser[_A, _B]) -> "_TupleParser[_A, Unpack[_Ts], _B]":
         pass
 
     def __add__(
         self,
-        other: Union[
-            "_IgnoredParser[_A]",
-            Parser[_A, _B],
-            "_TupleParser[_A, Unpack[_Ks]]",
-        ],
-    ) -> Union[
-        "_TupleParser[_A, Unpack[_Ts]]",
-        "_TupleParser[_A, Unpack[_Ts], _B]",
-        "_TupleParser[_A, Unpack[Tuple]]",
-    ]:
-        return super().__add__(other)
+        other: Union["_IgnoredParser[_A]", Parser[_A, _B]],
+    ) -> Union[Self, "_TupleParser[_A, Unpack[_Ts], _B]"]:
+        if isinstance(other, _IgnoredParser):
+            return super().__add__(other)
+        else:
+
+            @_TupleParser
+            def _add(
+                tokens: Sequence[_A], s: State
+            ) -> Tuple[Tuple[Unpack[_Ts], _B], State]:
+                (v1, s2) = self.run(tokens, s)
+                (v2, s3) = other.run(tokens, s2)
+                return _Tuple(v1 + (v2,)), s3
+
+            _add.name = "(%s, %s)" % (self.name, other.name)
+            return _add
 
 
 class _Ignored:
